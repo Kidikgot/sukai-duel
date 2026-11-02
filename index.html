@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -2142,6 +2142,9 @@ button { font-family: inherit; }
 </div>
 
 <div id="toast" class="toast"></div>
+
+<button id="musicToggle" type="button" aria-label="播放背景音乐" style="position:fixed;right:18px;bottom:18px;z-index:20000;display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:999px;border:1px solid rgba(232,196,106,.55);background:rgba(11,24,25,.88);color:#f3e4bc;font:600 12px/1 'Microsoft YaHei',sans-serif;letter-spacing:.05em;box-shadow:0 8px 28px rgba(0,0,0,.35);cursor:pointer;backdrop-filter:blur(8px)">♪ 音乐 <span id="musicState" style="opacity:.72">关</span></button>
+<audio id="bgm" preload="none"></audio>
 
 <script>
 (function () {
@@ -11008,6 +11011,93 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
 
 
 
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const TRACKS = [
+    'music/bios.mp3',
+    'music/apple-seed.mp3',
+    'music/breath-less.mp3',
+    'music/number-one-bankai.mp3',
+    'music/last-stardust.mp3'
+  ];
+  const audio = document.getElementById('bgm');
+  const btn = document.getElementById('musicToggle');
+  const state = document.getElementById('musicState');
+  if (!audio || !btn || !state) return;
+
+  let enabled = false;
+  let last = -1;
+  let retry = 0;
+
+  function label(on, err) {
+    state.textContent = err ? '不可用' : (on ? '开' : '关');
+    btn.setAttribute('aria-label', on ? '暂停背景音乐' : '播放背景音乐');
+    btn.style.borderColor = on ? 'rgba(232,196,106,.95)' : 'rgba(232,196,106,.55)';
+  }
+
+  function pickTrack() {
+    if (TRACKS.length === 1) return TRACKS[0];
+    let i = Math.floor(Math.random() * TRACKS.length);
+    if (i === last) i = (i + 1 + Math.floor(Math.random() * (TRACKS.length - 1))) % TRACKS.length;
+    last = i;
+    return TRACKS[i];
+  }
+
+  function playNext() {
+    audio.src = pickTrack();
+    audio.volume = 0.45;
+    audio.play().then(function () {
+      retry = 0;
+      enabled = true;
+      label(true, false);
+    }).catch(function () {
+      // 浏览器拒绝播放时保持“关”，等用户再次点击。
+      enabled = false;
+      label(false, false);
+    });
+  }
+
+  btn.addEventListener('click', function () {
+    if (!audio.src) {
+      playNext();
+      return;
+    }
+    if (audio.paused) {
+      audio.play().then(function () {
+        enabled = true;
+        label(true, false);
+      }).catch(function () {
+        enabled = false;
+        label(false, false);
+      });
+    } else {
+      audio.pause();
+      enabled = false;
+      label(false, false);
+    }
+  });
+
+  audio.addEventListener('ended', function () {
+    if (enabled) playNext();
+  });
+
+  audio.addEventListener('error', function () {
+    if (!enabled) return;
+    if (retry >= TRACKS.length) {
+      enabled = false;
+      label(false, true);
+      return;
+    }
+    retry += 1;
+    playNext();
+  });
+
+  audio.addEventListener('play', function () { label(true, false); });
+  audio.addEventListener('pause', function () { if (enabled) label(false, false); });
+})();
 
 </script>
 </body>
