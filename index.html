@@ -3439,7 +3439,7 @@ button { font-family: inherit; }
     ['半藏', '山椒鱼半藏，生命 1、近战 0.5。山椒鱼 CD6：近战 0.5 并击退，使目标中毒 3R（行动结束受 0.25 毒伤），在目标原格召唤山椒鱼（1R，占据格子），消失时对射程 5 内一名敌人造成 0.5 毒伤直中；召唤物山椒鱼不能伤害倒地目标。锁镰二段击 CD3：吸附并眩晕 1R，对目标及后方 3 格造成 0.5 真伤。锁镰·防反 CD3：1R 防反，完美防反无敌，普通防反 50% 减伤；被近战/远程攻击时以 0.5 火伤直中反击。锁镰乱舞 CD3：近身 0.5 群攻，移动 1 格后再造成 0.5 群攻。三种锁镰技能共享冷却。'],
     ['变身茄子', '生命 1.5、近战 0.5。开局从可复制能力池随机获得 1 个被动和 2 个可完整释放的技能；可复制被动池包含两仪式的直死之魔眼，复制后任何实际伤害均可触发 45% 直死；也包含库赞的冰封之路，复制后开局冰冻一名敌人。无前置的纯蓄力、0.5 治疗/护盾、飞矛、咆哮、王车易位等低收益技能不进入复制池。'],
     ['地牢压制', '进入地牢的单位临时变为 1 血、0.5 近战、无技能/被动/道具；健身教练的活力等被动在地牢内不生效。'],
-    ['倒地与控制', '倒地状态只有起身一个选项，眩晕、冰冻、禁锢、浮空等负面都不能阻止起身；起身恢复 50% 最大生命并自动解除眩晕，其他负面控制保留。'],
+    ['倒地与控制', '倒地状态通常只有起身一个选项，眩晕、冰冻、禁锢、浮空等负面都不能阻止起身；起身恢复 50% 最大生命并自动解除眩晕，其他负面控制保留。静希草十郎的「倒地站立」例外：可在倒地时正常移动、普攻或使用技能，也可选择起身。'],
     ['放逐', '目标无法行动，且无法被选中；持续 2R。'],
     ['愉悦', '言峰绮礼初始上限 3 层；击杀友方时上限 +2、层数 +3；治疗敌方时 +1。每轮若没有被抽中行动，可消耗 1 层获得一次额外行动，CD1。'],
     ['盖提亚', '伪典·所罗门的变身形态，2 血、2 近战；与所罗门的血量、CD 独立，持续 6R，不进入可选角色列表。'],
@@ -4477,7 +4477,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
       this.cannotKill = false;
       this.actionsLeft = Math.max(1, this.baseActions(u));
       this.log(`— ${u.name} 的回合（${u.team === 'left' ? '蓝' : '红'}方）—`, 'turn');
-      if (u.downed) this.log(`${u.name} 处于倒地状态，可起身（恢复 ${r2(u.maxHp / 2)} 血）`, 'warn');
+      if (u.downed) this.log(`${u.name} 处于倒地状态，${u.standingDown ? '可倒地站立自由行动，也可起身' : `可起身（恢复 ${r2(u.maxHp / 2)} 血）`}`, 'warn');
       if (u.frozen) this.log(`${u.name} 处于冰冻状态，只能解冻`, 'warn');
       this.startAction(u);
       this.emit();
@@ -9164,6 +9164,9 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
     }
 
     if (u.downed) {
+      if (u.standingDown) {
+        html += '<div class="move-tip"><b>倒地站立</b>：可以选择起身，也可以保持倒地状态移动、普攻或使用技能。</div>';
+      }
       html += '<button class="btn primary" data-act="stand">起身（恢复 ' + fmt(Math.max(0.5, u.maxHp / 2)) + ' 血，解除眩晕）</button>';
       (WX.UNITS[u.key].skills || []).filter(s => s.id === 'selfCut' || s.id === 'renDe').forEach(s => {
         if (s.id === 'renDe') {
@@ -9177,9 +9180,10 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
             (e === true ? '' : ' disabled') + '><span class="sk-name">' + esc(s.name) + '</span><span class="sk-meta">倒地时可用</span></button>';
         }
       });
-    } else if (u.frozen) {
+    }
+    if (u.frozen && !u.downed) {
       html += '<button class="btn primary" data-act="unfreeze">解冻（消耗本次行动）</button>';
-    } else {
+    } else if (!u.downed || u.standingDown) {
       if (u.root > 0) html += '<button class="btn" data-act="breakRoot">解除禁锢（消耗行动）</button>';
       if (u.pendingShot) {
         const shotLabel = u.pendingShot.kind === 'king'
@@ -9236,18 +9240,18 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
       });
 
       // 道具
-      if (!u.inDungeon && u.items.blood > 0) {
+      if (!u.downed && !u.inDungeon && u.items.blood > 0) {
         html += '<div class="shop-item"><span class="nm">血包 ×' + u.items.blood + '</span>' +
           '<button class="btn small" data-act="item" data-item="blood"' + (u.hp >= u.maxHp ? ' disabled' : '') + '>食用</button></div>';
       }
-      if (!u.inDungeon && u.items.shield > 0) {
+      if (!u.downed && !u.inDungeon && u.items.shield > 0) {
         const cap = Math.max(1, u.shieldCap);
         html += '<div class="shop-item"><span class="nm">盾 ×' + u.items.shield + '</span>' +
           '<button class="btn small" data-act="item" data-item="shield"' + (u.shield >= cap ? ' disabled' : '') + '>套盾</button></div>';
       }
 
       // 商店
-      if (!u.inDungeon && (g.nearShop(u) || u.key === 'muramasa')) {
+      if (!u.downed && !u.inDungeon && (g.nearShop(u) || u.key === 'muramasa')) {
         const ownShop = u.key === 'muramasa';
         html += '<div class="shop-box"><h4>' + (ownShop ? '村正自带商店' : '商店（相邻）') + '</h4>';
         const bladeLocked = u.key !== 'muramasa' && g.units.some(x => x.key === 'muramasa' && x.team !== u.team && !x.dead && !x.removed);
@@ -9295,6 +9299,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
     else if (UI.pvp && !isLocalUnit(cur)) text = '等待对手行动…';
     else if (!UI.pvp && cur.team === 'right') text = 'AI 正在行动…';
     else if (cur.inDungeon) text = '地牢决斗：外界无法干扰，直到一方彻底死亡。';
+    else if (cur.downed && cur.standingDown) text = '倒地站立：可以正常移动、普攻或使用技能，也可以选择起身。';
     else if (cur.downed) text = '你已倒地：唯一选项是起身，恢复最大生命的一半并解除眩晕。';
     else if (cur.frozen) text = '冰冻：本次行动只能解冻。';
     else if (cur.mustDungeon) text = '被地牢点名：下一次行动必须前往地牢。';
@@ -9514,7 +9519,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
       '<li><b>对肃正防御</b>：最高级防御，除即死/秒杀/移除外的伤害全部无效。</li>' +
       '</ul>';
     html += '<h3>关键状态</h3><ul>' +
-      '<li>倒地：唯一选项起身，恢复 50% 最大生命并自动解晕；冰冻/禁锢/浮空等保留。</li>' +
+      '<li>倒地：通常唯一选项起身，恢复 50% 最大生命并自动解晕；冰冻/禁锢/浮空等保留。草十郎「倒地站立」除外，可在倒地时正常移动、普攻或使用技能，也可选择起身。</li>' +
       '<li>冰冻：轮到行动时只能解冻；倒地时仍可直接起身，起身后冰冻保留。</li>' +
       '<li>禁锢：不能移动，但可以花一步解除；技能与普攻仍可使用。</li>' +
       '<li>浮空：怪异树木的远程普攻对其直接命中；藤虎可将其击落。</li>' +
