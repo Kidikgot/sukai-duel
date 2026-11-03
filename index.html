@@ -8654,7 +8654,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
   }
 
   function basicBlockReason(u, t) {
-    if (!u || u.downed) return '倒地中，无法攻击';
+    if (!u || (u.downed && !u.standingDown)) return '倒地中，无法攻击';
     if (u.frozen) return '冰冻中，无法攻击';
     if (u.pendingShot) return '请先结算上一发射击';
     if (!t || t.dead || t.removed) return '目标已不在场';
@@ -9040,7 +9040,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-02T11:24:50.404
     const g = UI.game;
     const cur = g.current;
     const isPlayer = cur && isLocalUnit(cur) && !g.over && !UI.autoBattle && !UI.netBusy;
-    const canMove = isPlayer && UI.moveMode && !UI.targetSkill && !UI.pending && !cur.downed && !cur.frozen && cur.root <= 0;
+    const canMove = isPlayer && UI.moveMode && !UI.targetSkill && !UI.pending && (!cur.downed || cur.standingDown) && !cur.frozen && cur.root <= 0;
     const range = isPlayer ? attackRange(cur) : 0;
     const targets = new Set(currentTargets().map(t => t.id));
     const cellSet = isPlayer && UI.targetSkill && UI.targetSkill.kind === 'cell'
