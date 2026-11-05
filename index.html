@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -2190,6 +2190,8 @@ button { font-family: inherit; }
       <button class="mode-chip" data-mode="1v1">1v1</button>
       <button class="mode-chip" data-mode="2v2">2v2</button>
       <button class="mode-chip" data-mode="clone">克隆 4v4</button>
+      <button class="mode-chip" data-mode="dual">双角色 7 人混战</button>
+      <button class="mode-chip" data-mode="ffa">单角色 7 人混战</button>
     </div>
 
     <div id="pvpPanel" class="pvp-panel hidden">
@@ -2319,7 +2321,7 @@ button { font-family: inherit; }
 (function (root) {
   'use strict';
   const WX = (root.WX = root.WX || {});
-  WX.BUILD = '2026-11-05.272';
+  WX.BUILD = '2026-11-05.279';
 
   WX.CONST = {
     W: 11,
@@ -4196,6 +4198,147 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       });
     }
 
+    makeFusionUnit(keys, team) {
+      const [pk, sk] = keys;
+      const p = WX.UNITS[pk], s = WX.UNITS[sk];
+      const u = this.makeUnit(pk, team);
+      u.fusion = true;
+      u.fusionKeys = [pk, sk];
+      u.name = p.name + ' × ' + s.name;
+      u.short = (p.short || '') + (s.short || '');
+      u.title = '双角色共体';
+      u.maxHp = Math.max(p.hp || 1, s.hp || 1);
+      u.hp = u.maxHp;
+      u.melee = Math.max(p.melee || 0, s.melee || 0);
+      u.ranged = Math.max(p.ranged || 0, s.ranged || 0);
+      u.rangedRange = Math.max(p.rangedRange || 0, s.rangedRange || 0);
+      u.copiedSkills = (s.skills || []).filter(ss => !(p.skills || []).some(ps => ps.id === ss.id));
+      u.copiedPassiveKey = sk;
+      u.copiedPassive = (WX.PASSIVES[sk] && WX.PASSIVES[sk][0]) || { name: '第二被动', desc: s.passive || '' };
+      u.passive = (p.passive || '') + ' / ' + (s.passive || '');
+      if (sk === 'sanda') u.basicHits = 2;
+      if (sk === 'kukuang') u.meleeOpts = Object.assign({}, u.meleeOpts || {}, { trueDmg: true });
+      if (sk === 'trainer' || sk === 'drill') u.hitCap = Math.max(u.hitCap || 0, 0.5);
+      if (sk === 'drill') u.drillPassive = true;
+      if (sk === 'aokiji') { u.iceBladePassive = true; u.twoStep = true; }
+      if (sk === 'solomon') u.hitCap = Math.max(u.hitCap || 0, 0.5);
+      if (sk === 'kakuzu') u.hearts = Math.max(u.hearts || 0, 1);
+      if (sk === 'roger') u.rogerSeaKingUntil = Math.max(u.rogerSeaKingUntil || 0, 2);
+      if (sk === 'oldman') u.stealth = 5;
+      if (sk === 'icehalberd') u.shield = Math.max(u.shield || 0, 1);
+      if (sk === 'rakshasa') u.source = Math.max(u.source || 0, 2);
+      if (sk === 'sanda') u.sandaGuard = true;
+      return u;
+    }
+
+    setupFFA(entries, kind) {
+      this.ffa = true;
+      this.ffaKind = kind || 'dual';
+      this.units = [];
+      this.round = 0;
+      this.over = false;
+      this.winner = null;
+      this.massacre = null;
+      this.timeStop = null;
+      this.logs = [];
+      this._logSeq = 0;
+      this.startedAt = Date.now();
+      this.endedAt = null;
+      this.dungeonCells = [];
+      this.dungeonSet = new Set();
+      this.duelActive = false;
+      this.duelFighters = [];
+      this.pendingDuel = null;
+      this.pendingRyougi = null;
+      this.pendingAokiji = null;
+      this.pendingMeteors = null;
+      this.aliceZones = [];
+      this.meteors = [];
+      this.isDay = true;
+      this.toukoMaterialSold = false;
+      this.ffa = true;
+
+      const anchors = [[1, 1], [9, 1], [1, 5], [9, 5], [5, 0], [5, 6], [5, 3]];
+      const shops = new Set(C.SHOPS.map(s => s.x + ',' + s.y));
+      const occupied = new Set();
+      const teams = ['left', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6'];
+      entries.slice(0, 7).forEach((entry, i) => {
+        if (!entry) return;
+        const keys = Array.isArray(entry) ? entry : [entry];
+        if (!keys.length || !WX.UNITS[keys[0]]) return;
+        let u;
+        if (keys.length === 1) u = this.makeUnit(keys[0], teams[i]);
+        else {
+          const [a, b] = keys;
+          if (!WX.UNITS[b] || a === b) return;
+          u = this.makeFusionUnit([a, b], teams[i]);
+        }
+        const anchor = anchors[i] || [Math.floor(C.W / 2), Math.floor(C.H / 2)];
+        const cells = [];
+        for (let x = 0; x < C.W; x++) for (let y = 0; y < C.H; y++) {
+          if (shops.has(x + ',' + y) || occupied.has(x + ',' + y)) continue;
+          cells.push({ x, y, d: Math.abs(x - anchor[0]) + Math.abs(y - anchor[1]) });
+        }
+        cells.sort((a, b) => a.d - b.d);
+        const cell = cells[0];
+        if (!cell) return;
+        occupied.add(cell.x + ',' + cell.y);
+        u.x = cell.x; u.y = cell.y;
+        this.units.push(u);
+      });
+
+      if (this.ffaKind === 'single') {
+        this.units.filter(u => u.key === 'touko').forEach(main => {
+          main.toukoMain = true;
+          main.stealth = 99;
+          main.noTurn = true;
+          const spots = [];
+          for (let x = 0; x < C.W; x++) for (let y = 0; y < C.H; y++) {
+            if (this.unitAt(x, y) || this.isShop(x, y) || this.isDungeonCell(x, y)) continue;
+            spots.push({ x, y });
+          }
+          spots.sort((a, b) => this.distXY(a, main.x, main.y) - this.distXY(b, main.x, main.y));
+          const c = spots[0];
+          if (!c) return;
+          const puppet = this.makeUnit('touko', main.team);
+          puppet.x = c.x; puppet.y = c.y;
+          puppet.toukoMain = false;
+          puppet.isToukoPuppet = true;
+          puppet.puppetOwner = main.id;
+          puppet.name = '苍崎橙子人偶';
+          puppet.short = '偶';
+          puppet.noTurn = false;
+          puppet.noDown = true;
+          puppet.stealth = 0;
+          puppet.puppetMaterial = false;
+          puppet.puppetMaterialBought = false;
+          this.toukoMaterialSold = false;
+          this.units.push(puppet);
+        });
+        this.initEggplants();
+        if (this.units.some(u => u.key === 'van')) this.generateDungeon();
+      }
+
+      this.units.forEach(u => {
+        if (u.key === 'oldman' || u.copiedPassiveKey === 'oldman') u.stealth = 5;
+        if (u.key === 'yamako') u.stealth = 3;
+        if (u.key === 'icehalberd' || u.copiedPassiveKey === 'icehalberd') u.shield = Math.max(u.shield, 1);
+        if (u.key === 'rakshasa') u.source = Math.max(u.source, 2);
+        if (u.copiedPassiveKey === 'sanda') u.sandaGuard = true;
+        (WX.UNITS[u.key].skills || []).concat(u.copiedSkills || []).forEach(s => {
+          if (s.initialCd) u.cds[s.id] = s.initialCd;
+        });
+      });
+
+      this.log((this.ffaKind === 'single' ? '单角色混战' : '双角色混战') +
+        '开始：每名参战者各自为战，最后存活者获胜。', 'system');
+      if (this.ffaKind === 'single' && this.resolveInitialAokiji()) {
+        this.emit();
+        return;
+      }
+      this.startRound();
+    }
+
     setup(leftKeys, rightKeys) {
       this.units = [];
       this.round = 0;
@@ -4219,6 +4362,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       this.meteors = [];
       this.isDay = true;
       this.toukoMaterialSold = false;
+      this.ffa = false;
 
       const occupied = new Set();
       const shops = new Set(C.SHOPS.map(s => s.x + ',' + s.y));
@@ -4299,7 +4443,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       const list = this.units.filter(u => (u.key === 'aokiji' || u.copiedPassiveKey === 'aokiji') &&
         !u.dead && !u.removed && !u.flags.aokijiInitialDone);
       for (const u of list) {
-        const es = this.enemiesOf(u).filter(t => !t.dead && !t.removed && !t.inDungeon);
+        const es = this.enemiesOf(u).filter(t => !t.dead && !t.removed && !t.inDungeon && !t.toukoMain);
         if (!es.length) { u.flags.aokijiInitialDone = true; continue; }
         let choice = null;
         if (typeof this.aokijiChooser === 'function') choice = this.aokijiChooser(this, u, es);
@@ -4418,6 +4562,21 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       const drawn = this.shuffle(alive.slice()).slice(0, k);
       const downed = drawn.filter(u => u.downed);
       const normal = drawn.filter(u => !u.downed);
+      if (this.ffa) {
+        this.queue = this.shuffle(downed.slice()).concat(this.shuffle(normal.slice())).map(u => u.id);
+        this.maybeKireiPleasure(drawn);
+        this.isDay = drawn.length % 2 === 1;
+        this.applyGawainSolar(drawn.length);
+        this.lastDraw = {
+          total: drawn.length,
+          left: drawn.filter(u => u.team === 'left').length,
+          right: drawn.filter(u => u.team !== 'left').length,
+          downed: downed.length,
+          first: 'left',
+          ffa: true
+        };
+        return;
+      }
       const left = this.shuffle(normal.filter(u => u.team === 'left').slice());
       const right = this.shuffle(normal.filter(u => u.team === 'right').slice());
       let first;
@@ -5682,6 +5841,13 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     /* ------------------------------ victory ---------------------------- */
     checkVictory() {
       if (this.over) return;
+      if (this.ffa) {
+        const teams = [...new Set(this.units.filter(u => !u.dead && !u.removed && !u.summon).map(u => u.team))];
+        if (teams.length > 1) { this.pendingVictoryRound = 0; return; }
+        if (!teams.length) { this.finishVictory('draw', '全场全灭，平局。'); return; }
+        this.pendingVictoryRound = this.round;
+        return;
+      }
       const left = this.units.filter(u => u.team === 'left' && !u.dead && !u.removed && !u.summon);
       const right = this.units.filter(u => u.team === 'right' && !u.dead && !u.removed && !u.summon);
       if (left.length && right.length) {
@@ -5699,6 +5865,14 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
 
     finalizeVictory() {
       if (this.over) return;
+      if (this.ffa) {
+        const alive = this.units.filter(u => !u.dead && !u.removed && !u.summon);
+        const teams = [...new Set(alive.map(u => u.team))];
+        if (teams.length > 1) { this.pendingVictoryRound = 0; return; }
+        if (!teams.length) this.finishVictory('draw', '同一轮全场全灭，平局。');
+        else this.finishVictory(teams[0], `${alive[0].name} 获胜！`);
+        return;
+      }
       const left = this.units.filter(u => u.team === 'left' && !u.dead && !u.removed && !u.summon);
       const right = this.units.filter(u => u.team === 'right' && !u.dead && !u.removed && !u.summon);
       if (left.length && right.length) {
@@ -10324,16 +10498,19 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       nameSeen[u.name] = (nameSeen[u.name] || 0) + 1;
       u.label = nameCount[u.name] > 1 ? u.name + ' #' + nameSeen[u.name] : u.name;
     });
-    const left = units.filter(u => u.team === 'left');
-    const right = units.filter(u => u.team === 'right');
+    const left = game.ffa ? units : units.filter(u => u.team === 'left');
+    const right = game.ffa ? [] : units.filter(u => u.team === 'right');
     const possessionWinner = game.over && game.winner !== 'draw' &&
       game.units.find(u => u.team === game.winner && !u.dead && !u.removed &&
         u.possessedFrom === 'deathfist');
+    const ffaWinner = game.ffa && game.winner !== 'draw'
+      ? game.units.find(u => u.team === game.winner && !u.dead && !u.removed) : null;
     const winnerText = !game.over ? '进行中' :
       (possessionWinner ? '死拳套（夺舍）获胜' :
-        (game.winner === 'left' ? '蓝方获胜' : game.winner === 'right' ? '红方获胜' : '平局'));
+        (ffaWinner ? ffaWinner.name + ' 获胜' :
+          (game.winner === 'left' ? '蓝方获胜' : game.winner === 'right' ? '红方获胜' : '平局')));
     const baseMode = opts.pvp ? '联机 PvP' : (opts.autoBattle ? '自动对战（AI vs AI）' : (opts.demo ? '演示对局' : '玩家 vs AI'));
-    const sizeLabel = opts.clone ? '克隆 4v4' : (opts.mode === '1v1' ? '1v1' : (opts.mode === '2v2' ? '2v2' : ''));
+    const sizeLabel = game.ffa ? (game.ffaKind === 'single' ? '单角色 7 人混战' : '双角色 7 人混战') : (opts.clone ? '克隆 4v4' : (opts.mode === '1v1' ? '1v1' : (opts.mode === '2v2' ? '2v2' : '')));
     const modeText = baseMode + (sizeLabel ? ' · ' + sizeLabel : '');
     const started = game.startedAt ? new Date(game.startedAt) : new Date();
     const ended = game.endedAt ? new Date(game.endedAt) : new Date();
@@ -10352,7 +10529,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       over: game.over,
       winner: game.winner,
       winnerText, modeText, started, ended, duration,
-      units, left, right, mvp, keyEvents, rounds,
+      units, left, right, mvp, keyEvents, rounds, ffa: !!game.ffa,
       logCount: game.logs.length,
       totalKills: units.reduce((s, u) => s + u.kills, 0),
       totalDealt: units.reduce((s, u) => s + u.dealt, 0)
@@ -10375,8 +10552,12 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     lines.push('- 总击杀：' + d.totalKills);
     lines.push('');
     lines.push('## 阵容', '');
-    lines.push('**蓝方**：' + d.left.map(u => u.label).join('、'));
-    lines.push('**红方**：' + d.right.map(u => u.label).join('、'));
+    if (d.ffa) {
+      lines.push('**参战者**：' + d.units.map(u => u.label).join('、'));
+    } else {
+      lines.push('**蓝方**：' + d.left.map(u => u.label).join('、'));
+      lines.push('**红方**：' + d.right.map(u => u.label).join('、'));
+    }
     lines.push('');
 
     const copied = d.units.filter(u => u.copiedPassive || (u.copiedSkills && u.copiedSkills.length));
@@ -10400,14 +10581,14 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     lines.push('| 单位 | 阵营 | 击杀 | 输出 | 承伤 | 治疗 | 行动 | 技能 | 结果 |');
     lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |');
     d.units.forEach(u => {
-      lines.push('| ' + u.label + ' | ' + (u.team === 'left' ? '蓝' : '红') + ' | ' + u.kills + ' | ' +
+      lines.push('| ' + u.label + ' | ' + (d.ffa ? (u.team === 'left' ? '你' : 'AI') : (u.team === 'left' ? '蓝' : '红')) + ' | ' + u.kills + ' | ' +
         fmt(u.dealt) + ' | ' + fmt(u.taken) + ' | ' + fmt(u.healed) + ' | ' + u.actions + ' | ' +
         u.skills + ' | ' + statusText(u) + ' |');
     });
     lines.push('');
     lines.push('## MVP', '');
     if (d.mvp) {
-      lines.push('**' + d.mvp.label + '**（' + (d.mvp.team === 'left' ? '蓝方' : '红方') + '）— 击杀 ' +
+      lines.push('**' + d.mvp.label + '**（' + (d.ffa ? (d.mvp.team === 'left' ? '你' : 'AI') : (d.mvp.team === 'left' ? '蓝方' : '红方')) + '）— 击杀 ' +
         d.mvp.kills + '，输出 ' + fmt(d.mvp.dealt) + '，承伤 ' + fmt(d.mvp.taken) + '，治疗 ' + fmt(d.mvp.healed) + '。');
     } else {
       lines.push('暂无（对局刚开始）');
@@ -10438,10 +10619,15 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       '<div class="report-kpi"><span>总输出</span><b>' + fmt(d.totalDealt) + '</b></div>' +
       '</div>';
 
-    out += '<div class="report-teams">' +
-      '<div class="report-team left"><h4>蓝方 · ' + d.left.length + ' 人</h4><p>' + d.left.map(u => esc(u.label)).join('、') + '</p></div>' +
-      '<div class="report-team right"><h4>红方 · ' + d.right.length + ' 人</h4><p>' + d.right.map(u => esc(u.label)).join('、') + '</p></div>' +
-      '</div>';
+    if (d.ffa) {
+      out += '<div class="report-teams"><div class="report-team left"><h4>参战者 · ' + d.units.length + ' 人</h4><p>' +
+        d.units.map(u => esc(u.label)).join('、') + '</p></div></div>';
+    } else {
+      out += '<div class="report-teams">' +
+        '<div class="report-team left"><h4>蓝方 · ' + d.left.length + ' 人</h4><p>' + d.left.map(u => esc(u.label)).join('、') + '</p></div>' +
+        '<div class="report-team right"><h4>红方 · ' + d.right.length + ' 人</h4><p>' + d.right.map(u => esc(u.label)).join('、') + '</p></div>' +
+        '</div>';
+    }
 
     const copied = d.units.filter(u => u.copiedPassive || (u.copiedSkills && u.copiedSkills.length));
     if (copied.length) {
@@ -10464,7 +10650,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     if (d.mvp) {
       out += '<div class="report-section"><h3>MVP</h3><div class="report-mvp">' +
         '<div class="mvp-name">' + esc(d.mvp.label) + '</div>' +
-        '<div class="mvp-meta">' + (d.mvp.team === 'left' ? '蓝方' : '红方') +
+        '<div class="mvp-meta">' + (d.ffa ? (d.mvp.team === 'left' ? '你' : 'AI') : (d.mvp.team === 'left' ? '蓝方' : '红方')) +
         ' · 击杀 ' + d.mvp.kills + ' · 输出 ' + fmt(d.mvp.dealt) + ' · 承伤 ' + fmt(d.mvp.taken) +
         ' · 治疗 ' + fmt(d.mvp.healed) + '</div></div></div>';
     }
@@ -10474,7 +10660,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       '<th class="num">治疗</th><th class="num">行动</th><th class="num">技能</th><th>结果</th></tr></thead><tbody>';
     d.units.forEach(u => {
       out += '<tr' + (d.mvp && d.mvp.id === u.id ? ' class="mvp"' : '') + '>' +
-        '<td>' + esc(u.label) + '</td><td class="pt">' + (u.team === 'left' ? '蓝' : '红') + '</td>' +
+        '<td>' + esc(u.label) + '</td><td class="pt">' + (d.ffa ? (u.team === 'left' ? '你' : 'AI') : (u.team === 'left' ? '蓝' : '红')) + '</td>' +
         '<td class="num">' + u.kills + '</td><td class="num">' + fmt(u.dealt) + '</td>' +
         '<td class="num">' + fmt(u.taken) + '</td><td class="num">' + fmt(u.healed) + '</td>' +
         '<td class="num">' + u.actions + '</td><td class="num">' + u.skills + '</td>' +
@@ -10606,11 +10792,22 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     clone: {
       min: 1, max: 1, random: 1, label: '克隆 4v4',
       desc: '选择 1 名单位作为克隆体，双方各复制 4 个同角色克隆。'
+    },
+    dual: {
+      min: 2, max: 2, random: 2, label: '双角色 7 人混战',
+      desc: '选择 2 名角色共体，与 6 名 AI 双角色共体进行自由混战；生命、近战、远程均取两者较高值。'
+    },
+    ffa: {
+      min: 1, max: 1, random: 1, label: '单角色 7 人混战',
+      desc: '选择 1 名角色，与 6 名 AI 单角色进行自由混战；最后存活者获胜。'
     }
   };
 
   function isLocalTeam(team) {
     return UI.pvp ? team === UI.pvpLocalTeam : team === 'left';
+  }
+  function teamClass(team) {
+    return team === 'left' ? 'left' : 'right';
   }
   function isLocalUnit(u) {
     return !!u && isLocalTeam(u.team);
@@ -10781,6 +10978,29 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     };
   }
 
+  function dualPairs(playerKeys) {
+    const excluded = new Set(['touko', 'eggplant', 'van', 'aokiji']);
+    const used = new Set(playerKeys || []);
+    const pool = WX.ROSTER.filter(k => !excluded.has(k) && !used.has(k));
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const pairs = [];
+    if (playerKeys && playerKeys.length === 2) pairs.push(playerKeys.slice(0, 2));
+    while (pairs.length < 7 && pool.length >= 2) pairs.push([pool.shift(), pool.shift()]);
+    return pairs;
+  }
+
+  function ffaLineup(playerKey) {
+    const pool = WX.ROSTER.filter(k => k !== playerKey);
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return [playerKey].concat(pool.slice(0, 6));
+  }
+
   function enemyLineup(size, leftKeys) {
     const left = new Set(leftKeys || []);
     const pick = UI.opponentPick;
@@ -10818,6 +11038,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     if (UI.pvp) UI.autoBattle = false;
     UI.matchMode = opts.mode || UI.matchMode || 'classic';
     UI.cloneMode = !!opts.clone || UI.matchMode === 'clone';
+    UI.dualMode = !!opts.ffaPairs;
     UI.lastMode = UI.autoBattle ? 'auto' : 'normal';
     UI.game = null;
     UI.tokens.forEach(el => el.remove());
@@ -10860,6 +11081,8 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     UI.lastLineup = {
       left: leftKeys.slice(), right: rightKeys.slice(),
       autoBattle: UI.autoBattle, mode: UI.matchMode, clone: UI.cloneMode,
+      ffaPairs: opts.ffaPairs ? opts.ffaPairs.map(p => Array.isArray(p) ? p.slice() : p) : null,
+      ffaKind: opts.ffaKind || null,
       pvp: UI.pvp, localTeam: UI.pvpLocalTeam
     };
     UI.game = new WX.Game({
@@ -10887,7 +11110,8 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       const auto = UI.autoBattle || UI.autoplay || UI.demo || !isLocalUnit(u);
       return auto ? null : 'pending';
     };
-    UI.game.setup(leftKeys, rightKeys);
+    if (opts.ffaPairs) UI.game.setupFFA(opts.ffaPairs, opts.ffaKind);
+    else UI.game.setup(leftKeys, rightKeys);
     sync();
     if (UI.pvp) pvpInstall(UI.game);
   }
@@ -10902,7 +11126,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     UI.mode = local ? 'player' : 'ai';
     sync();
     if (UI.game.over) return;
-    if (!UI.pvp && (u.team === 'right' || UI.demo || auto)) {
+    if (!UI.pvp && (!isLocalTeam(u.team) || UI.demo || auto)) {
       const token = UI.aiToken;
       setTimeout(() => aiStep(u, token), UI.speed);
     }
@@ -11134,8 +11358,10 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
   function renderHeader() {
     const g = UI.game;
     const alive = team => g.units.filter(u => u.team === team && !u.dead && !u.removed).length;
-    $('#roundBadge').textContent = '第 ' + g.round + ' 回合 · 蓝 ' + alive('left') + ' / 红 ' + alive('right') +
-      (UI.cloneMode ? ' · 克隆' : '');
+    $('#roundBadge').textContent = g.ffa
+      ? '第 ' + g.round + ' 回合 · 存活 ' + g.units.filter(u => !u.dead && !u.removed).length + ' / 7'
+      : '第 ' + g.round + ' 回合 · 蓝 ' + alive('left') + ' / 红 ' + alive('right') +
+        (UI.cloneMode ? ' · 克隆' : '');
     const ab = $('#autoBtn');
     if (ab) {
       ab.classList.toggle('hidden', UI.autoBattle || UI.pvp);
@@ -11149,7 +11375,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     const fx = $('#board') || $('#fx');
     if (fx) {
       const burst = document.createElement('div');
-      burst.className = 'kill-fx ' + (killer ? 'team-' + killer.team : '');
+      burst.className = 'kill-fx ' + (killer ? 'team-' + teamClass(killer.team) : '');
       burst.style.left = ((victim.x + 0.5) / C.W * 100) + '%';
       burst.style.top = ((victim.y + 0.5) / C.H * 100) + '%';
       burst.innerHTML = '<i class="kill-burst-ring"></i><i class="kill-burst-core"></i>' +
@@ -11190,8 +11416,8 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     const killer = entry.killer;
     const victim = entry.victim;
     const removed = entry.opts.removed;
-    const teamClass = killer && !removed ? ' team-' + killer.team : '';
-    b.className = 'kill-banner show' + teamClass;
+    const killTeamClass = killer && !removed ? ' team-' + teamClass(killer.team) : '';
+    b.className = 'kill-banner show' + killTeamClass;
     if (killer && killer !== victim && !removed) {
       b.innerHTML = '<span class="kill-ko">K.O.</span><span class="kill-swords">⚔</span>' +
         '<span class="kill-killer">' + esc(killer.name) + '</span>' +
@@ -11224,8 +11450,9 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     flashGranted();
     const d = g.lastDraw;
     const b = $('#banner');
-    b.textContent = '第 ' + g.round + ' 回合 · 抽中 ' + d.total + ' 人 · 蓝 ' + d.left + ' / 红 ' + d.right +
-      (d.downed ? ' · 倒地 ' + d.downed + ' 人优先' : '') + ' · ' + (d.first === 'left' ? '蓝方' : '红方') + '先手';
+    b.textContent = '第 ' + g.round + ' 回合 · 抽中 ' + d.total + ' 人' +
+      (g.ffa ? ' 混战' : ' · 蓝 ' + d.left + ' / 红 ' + d.right +
+        (d.downed ? ' · 倒地 ' + d.downed + ' 人优先' : '') + ' · ' + (d.first === 'left' ? '蓝方' : '红方') + '先手');
     b.classList.add('show');
     clearTimeout(UI.bannerTimer);
     UI.bannerTimer = setTimeout(() => b.classList.remove('show'), 2600);
@@ -11269,14 +11496,16 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       box.innerHTML = '<div class="log-head"><h4>行动队列</h4></div><div class="queue-empty">尚未开始</div>';
       return;
     }
-    let html = '<div class="log-head"><h4>行动队列</h4><span class="qt" style="font-size:9px;color:#7f8ca6">' + (g.lastDraw ? '蓝 ' + g.lastDraw.left + ' / 红 ' + g.lastDraw.right : '') + '</span></div><div class="queue-list">';
+    let html = '<div class="log-head"><h4>行动队列</h4><span class="qt" style="font-size:9px;color:#7f8ca6">' +
+      (g.lastDraw ? (g.ffa ? '混战 ' + g.lastDraw.total + ' 人' : '蓝 ' + g.lastDraw.left + ' / 红 ' + g.lastDraw.right) : '') +
+      '</span></div><div class="queue-list">';
     g.queue.forEach((id, i) => {
       const u = g.getUnit(id);
       if (!u) return;
       const isCur = g.current === u;
       const granted = UI.grantedIds && UI.grantedIds.has(u.id);
       const done = !isCur && (i < g.qIndex || u.dead || u.removed || (g.timeStop && u.id !== g.timeStop.ownerId && i < g.qIndex));
-      html += '<div class="queue-item ' + (u.team === 'right' ? 'right' : '') + (isCur ? ' cur' : '') + (granted ? ' granted' : '') + (done ? ' done' : '') + '">' +
+      html += '<div class="queue-item ' + (u.team !== 'left' ? 'right' : '') + (isCur ? ' cur' : '') + (granted ? ' granted' : '') + (done ? ' done' : '') + '">' +
         '<span class="qd"></span><span class="qname">' + esc(u.name) + '</span>' +
         '<span class="qt">' + (u.downed ? '倒地' : (u.frozen ? '冰冻' : 'HP ' + fmt(u.hp))) + '</span></div>';
     });
@@ -11423,7 +11652,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       '<div class="turn-top">' +
         '<div class="turn-glyph" style="--team:' + (u.team === 'left' ? '#5aa9ff' : '#ff6b6b') + '">' + esc(u.jeep ? '🚙' : u.short) + '</div>' +
         '<div class="turn-meta">' +
-          '<div class="nm">' + esc(u.name) + '<span class="team-chip ' + u.team + '">' + (u.team === 'left' ? '蓝方' : '红方') + '</span></div>' +
+          '<div class="nm">' + esc(u.name) + '<span class="team-chip ' + teamClass(u.team) + '">' + (u.team === 'left' ? '你' : 'AI') + '</span></div>' +
           '<div class="rl">' + esc(u.role) + ' · ' + control + '</div>' +
         '</div>' +
       '</div>' +
@@ -11475,7 +11704,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       el.style.top = ((u.y + 0.5) / C.H * 100) + '%';
       el.style.zIndex = String(10 + u.y + (u.carriedBy ? 1 : 0));
 
-      let cls = 'token team-' + u.team;
+      let cls = 'token team-' + teamClass(u.team);
       if (u.downed) cls += ' downed';
       if (u.frozen) cls += ' frozen';
       if (u.root > 0) cls += ' rooted';
@@ -11643,8 +11872,8 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
         '<div class="ai-thinking"><span class="dots"><i></i><i></i><i></i></span> 已发送，等待房主结算…</div>';
       return;
     }
-    if (UI.demo || UI.autoBattle || (!UI.pvp && (u.team === 'right' || (u.team === 'left' && UI.autoplay)))) {
-      const label = UI.autoBattle ? '自动对战中…' : (u.team === 'left' ? '自动托管中…' : 'AI 正在决策…');
+    if (UI.demo || UI.autoBattle || (!UI.pvp && (!isLocalTeam(u.team) || (isLocalTeam(u.team) && UI.autoplay)))) {
+      const label = UI.autoBattle ? '自动对战中…' : (isLocalTeam(u.team) ? '自动托管中…' : 'AI 正在决策…');
       box.innerHTML = '<div class="action-title">行动 <span>' + esc(u.name) + '</span></div>' +
         '<div class="ai-thinking"><span class="dots"><i></i><i></i><i></i></span> ' + label + '</div>' +
         '<div class="buff-row" style="margin-top:8px">' + statusChips(u) + '</div>';
@@ -11846,7 +12075,7 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     else if (!cur) text = '结算中…';
     else if (UI.pvp && UI.netBusy) text = '已发送操作，等待房主结算…';
     else if (UI.pvp && !isLocalUnit(cur)) text = '等待对手行动…';
-    else if (!UI.pvp && cur.team === 'right') text = 'AI 正在行动…';
+    else if (!UI.pvp && !isLocalTeam(cur.team)) text = 'AI 正在行动…';
     else if (cur.inDungeon) text = '地牢决斗：外界无法干扰，直到一方彻底死亡。';
     else if (cur.downed && cur.standingDown) text = '倒地站立：可以正常移动、普攻或使用技能，也可以选择起身。';
     else if (cur.downed) text = '你已倒地：唯一选项是起身，恢复最大生命的一半并解除眩晕。';
@@ -12152,23 +12381,27 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
     UI.overShown = true;
     const possessionWinner = g.units.find(u => u.team === winner && !u.dead && !u.removed &&
       u.possessedFrom === 'deathfist');
+    const ffaWinner = g.ffa ? g.units.find(u => u.team === winner && !u.dead && !u.removed) : null;
     const title = winner === 'draw' ? '平局' :
       (possessionWinner ? '死拳套（夺舍）获胜' :
-        (winner === 'left' ? '蓝方获胜' : '红方获胜'));
+        (ffaWinner ? (ffaWinner.team === 'left' ? '你获胜' : ffaWinner.name + ' 获胜') :
+          (winner === 'left' ? '蓝方获胜' : '红方获胜')));
     const left = g.units.filter(u => u.team === 'left');
     const right = g.units.filter(u => u.team === 'right');
     const aliveL = left.filter(u => !u.dead && !u.removed).length;
     const aliveR = right.filter(u => !u.dead && !u.removed).length;
     const killsL = left.reduce((s, u) => s + u.kills.length, 0);
     const killsR = right.reduce((s, u) => s + u.kills.length, 0);
+    const aliveAll = g.units.filter(u => !u.dead && !u.removed).length;
+    const killsAll = g.units.reduce((s, u) => s + u.kills.length, 0);
     $('#overTitle').textContent = title;
     if (UI.autoBattle) $('#overText').textContent = '本局由双方 AI 自动完成，可查看并导出完整战报。';
     else if (winner === 'draw') $('#overText').textContent = '双方都没能站到最后。';
     else $('#overText').textContent = winner === 'left' ? '你的队伍清除了所有敌人。' : 'AI 的队伍赢下了这场对决。';
     $('#overStats').innerHTML =
       '<div><b>' + g.round + '</b>回合</div>' +
-      '<div><b>' + aliveL + ' : ' + aliveR + '</b>存活</div>' +
-      '<div><b>' + killsL + ' : ' + killsR + '</b>击杀</div>';
+      '<div><b>' + (g.ffa ? aliveAll : aliveL + ' : ' + aliveR) + '</b>存活</div>' +
+      '<div><b>' + (g.ffa ? killsAll : killsL + ' : ' + killsR) + '</b>击杀</div>';
     $('#reportOverBtn').classList.remove('hidden');
     $('#gameOver').classList.remove('hidden');
   }
@@ -13465,6 +13698,15 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       if (UI.pvpOpen || UI.pvpRole) { toast('联机房间进行中，请先离开'); return; }
       const mode = UI.matchMode;
       const n = mode === 'classic' ? 4 : MODES[mode].max;
+      if (mode === 'dual') {
+        startGame([], [], { autoBattle: true, mode, ffaPairs: dualPairs(null), ffaKind: 'dual' });
+        return;
+      }
+      if (mode === 'ffa') {
+        const key = randomLineup(1)[0];
+        startGame([], [], { autoBattle: true, mode, ffaPairs: ffaLineup(key), ffaKind: 'single' });
+        return;
+      }
       const left = randomLineup(n);
       if (mode === 'clone') {
         const ai = (UI.opponentPick !== 'random' && WX.UNITS[UI.opponentPick])
@@ -13480,8 +13722,35 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       if (UI.pvpOpen || UI.pvpRole) return;
       const cfg = MODES[UI.matchMode] || MODES.classic;
       if (UI.selected.size < cfg.min) { toast('至少选择 ' + cfg.min + ' 名单位'); return; }
-      let left = WX.ROSTER.filter(k => UI.selected.has(k));
+      let left = UI.matchMode === 'dual'
+        ? [...UI.selected]
+        : WX.ROSTER.filter(k => UI.selected.has(k));
       let right;
+      if (UI.matchMode === 'dual') {
+        const blocked = new Set(['touko', 'eggplant', 'van', 'aokiji']);
+        if (left.some(k => blocked.has(k))) {
+          toast('双角色模式暂不支持橙子、茄子、VAN、库赞');
+          return;
+        }
+        const pairs = dualPairs(left);
+        try {
+          startGame([], [], { mode: UI.matchMode, ffaPairs: pairs, ffaKind: 'dual' });
+        } catch (e) {
+          console.error(e);
+          toast('双角色启动失败：' + (e && e.message ? e.message : e));
+        }
+        return;
+      }
+      if (UI.matchMode === 'ffa') {
+        const key = left[0];
+        try {
+          startGame([], [], { mode: UI.matchMode, ffaPairs: ffaLineup(key), ffaKind: 'single' });
+        } catch (e) {
+          console.error(e);
+          toast('单角色混战启动失败：' + (e && e.message ? e.message : e));
+        }
+        return;
+      }
       if (UI.matchMode === 'clone') {
         const base = left[0];
         const ai = (UI.opponentPick !== 'random' && WX.UNITS[UI.opponentPick])
@@ -13544,7 +13813,9 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       startGame(UI.lastLineup.left, UI.lastLineup.right, {
         autoBattle: !!UI.lastLineup.autoBattle,
         mode: UI.lastLineup.mode,
-        clone: !!UI.lastLineup.clone
+        clone: !!UI.lastLineup.clone,
+        ffaPairs: UI.lastLineup.ffaPairs,
+        ffaKind: UI.lastLineup.ffaKind
       });
     });
 
@@ -13556,7 +13827,9 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-05T11:31:00.370
       startGame(UI.lastLineup.left, UI.lastLineup.right, {
         autoBattle: !!UI.lastLineup.autoBattle,
         mode: UI.lastLineup.mode,
-        clone: !!UI.lastLineup.clone
+        clone: !!UI.lastLineup.clone,
+        ffaPairs: UI.lastLineup.ffaPairs,
+        ffaKind: UI.lastLineup.ffaKind
       });
     });
 
