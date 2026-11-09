@@ -1594,6 +1594,21 @@ button { font-family: inherit; }
   }
 }
 @media (max-width: 760px) {
+  /* 手机端把血条移到头像外，避免盖住角色头像 */
+  .token .hpbar {
+    left: 3%; right: 3%;
+    bottom: -8px;
+    height: 5px;
+    z-index: 5;
+  }
+  .token .hpbar .hp-text {
+    top: 7px; right: 0;
+    font-size: 7px; line-height: 9px;
+  }
+  .token .token-name {
+    top: calc(100% + 19px);
+    max-width: 180%;
+  }
   body { overflow: auto; }
   .app { height: auto; min-height: 100%; }
   #main { flex-direction: column; }
