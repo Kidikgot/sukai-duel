@@ -4777,7 +4777,7 @@ button { font-family: inherit; }
 (function (root) {
   'use strict';
   const WX = (root.WX = root.WX || {});
-  WX.BUILD = '2026-11-07.719';
+  WX.BUILD = '2026-11-07.720';
 
   WX.CONST = {
     W: 11,
@@ -18787,8 +18787,8 @@ window.WX = window.WX || {}; WX.LEAGUE = {"generatedAt":"2026-11-12T11:44:42.028
       UI.killTimer = setTimeout(() => {
         UI.killShowing = false;
         showNextKill();
-      }, 140);
-    }, 1500);
+      }, 100);
+    }, 1000);
   }
 
   function renderBanner() {
