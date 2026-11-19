@@ -6334,7 +6334,7 @@ button { font-family: inherit; }
 (function (root) {
   'use strict';
   const WX = (root.WX = root.WX || {});
-  WX.BUILD = '2026-11-07.924';
+  WX.BUILD = '2026-11-07.925';
 
   WX.CONST = {
     W: 11,
@@ -14424,6 +14424,10 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
       if (carrier && carrier.carrying === u.id) carrier.carrying = null;
       u.carrying = null;
       u.carriedBy = null;
+      if (carried) {
+        const cells = this.freeCellsFor(carried).filter(c => this.distXY(c, u.x, u.y) === 1);
+        if (cells.length) { carried.x = cells[0].x; carried.y = cells[0].y; }
+      }
       if (carried || carrier) {
         this.log(`${u.name} 解除守护${reason ? '（' + reason + '）' : ''}`, 'buff');
       }
@@ -17889,6 +17893,7 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
       u.downed = false;
       u.standingDown = false;
       u.hp = r2(u.maxHp * 0.5);
+      if (u.key === 'alcides' && (u.alcidesTrials || []).includes('hide')) u.defense = (u.defense || 0) + 0.25;
       // 起身优先于所有控制；只解除眩晕，冰冻/禁锢/浮空等负面控制保留。
       u.stun = 0;
       u.stunTimed = false;
@@ -22452,6 +22457,8 @@ const ROSTER_CLASS = {
   /* ------------------------------ 开局 ------------------------------ */
   function startGame(leftKeys, rightKeys, opts) {
     opts = opts || {};
+    UI.alcidesChoiceShown = false; UI.witchChoiceShown = false;
+    document.querySelectorAll('#alcidesChoiceModal,#witchRoleModal').forEach(el => el.remove());
     const params = new URLSearchParams(location.search);
     UI.autoBattle = !!opts.autoBattle;
     UI.pvp = !!opts.pvp;
