@@ -6905,7 +6905,7 @@ button { font-family: inherit; }
 (function (root) {
   'use strict';
   const WX = (root.WX = root.WX || {});
-  WX.BUILD = '2026-11-07.1293';
+  WX.BUILD = '2026-11-07.1295';
 
   WX.CONST = {
     W: 11,
@@ -12772,6 +12772,7 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
       if (cast) t.cds.madaraSeal = this.round + 9;
       if (cast && this.rng() < 0.5) {
         t.madaraSealUntilAction = (t.actionsTaken || 0) + 2;
+        t.madaraSealRound = this.round;
         t.madaraSealReduce = 0;
         this.log(`${t.name} 的封术吸印成功：免疫本次伤害并进入 1T 防反`, 'buff');
         this.float(t, '封术吸印', 'buff');
@@ -12780,6 +12781,7 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
         if (cast) this.log(`${t.name} 的封术吸印失败：本次伤害正常结算，CD6`, 'warn');
         this.damage(src, t, p.amount, Object.assign({}, p.opts, { madaraSealResolved: true }));
       }
+      if (p.consume) this.consumeAction(p.consume.u, p.consume.opts);
       this.emit();
       return { ok: true, cast: !!cast };
     }
@@ -13358,6 +13360,7 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
     consumeAction(u, opts) {
       opts = opts || {};
       if (this.pendingSekiro) { this.pendingSekiro.consume = { u, opts }; return; }
+      if (this.pendingMadaraSeal) { this.pendingMadaraSeal.consume = { u, opts }; return; }
       if (this.over) return;
       if (u && u.witchPair) {
         const sib = this.units.find(x => x !== u && x.witchPair === u.witchPair && !x.dead && !x.removed);
