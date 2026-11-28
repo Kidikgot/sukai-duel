@@ -7367,7 +7367,7 @@ button { font-family: inherit; }
 (function (root) {
   'use strict';
   const WX = (root.WX = root.WX || {});
-  WX.BUILD = '2026-11-07.1616';
+  WX.BUILD = '2026-11-07.1618';
 
   WX.CONST = {
     W: 11,
@@ -9964,7 +9964,7 @@ button { font-family: inherit; }
           desc: '蓄力4次；完成后对全体敌人造成1真伤直接命中，无视防御强化；命中隐身与召唤物。财宝可抵扣蓄力。',
           run(g, u) { return g.gilCasterBow(u); } },
         { id: 'gilCasterVault', name: '巴比伦宝库', target: 'self', range: 0, cd: 12, initialCd: 7,
-          desc: '开启宝库：立即获得5次连续行动。CD12，初始CD7。',
+          desc: '开启宝库：立即获得5次连续行动。期间天地乖离开辟剑无需蓄力，所有技能无需CD。CD12，初始CD7。',
           run(g, u) { return g.gilCasterVault(u); } }
       ]
     },
@@ -14830,6 +14830,15 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
     }
 
     gilCasterSword(u) {
+      if (u.gilVaultActive) {
+        u.gilCasterSwordStage = 0;
+        const es = this.enemiesOf(u).filter(t => !t.dead && !t.removed);
+        es.forEach(t => this.damage(u, t, 0.5, { trueDmg: true, direct: true, skill: '天地乖离开辟剑' }));
+        this.gilClearFields();
+        this.gilCasterMarkUsed(u, 'sword');
+        this.log(`${u.name} 的天地乖离开辟剑：宝库展开期间无需蓄力，${es.length} 名敌人受到0.5真伤`, 'skill');
+        return { ok: true };
+      }
       if ((u.gilCasterSwordStage || 0) === 0 && (u.gilCasterTreasure || 0) > 0) {
         u.gilCasterTreasure -= 1;
         u.gilCasterSwordStage = 1;
@@ -14889,6 +14898,9 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
     }
 
     gilCasterVault(u) {
+      if (u.gilVaultActive) return this.err('巴比伦宝库已经展开');
+      u.gilVaultActive = true;
+      u.gilVaultCount = -1;
       u.extraAction = (u.extraAction || 0) + 5;
       this.log(`${u.name} 开启巴比伦宝库：获得5次连续行动`, 'buff');
       this.float(u, '连续行动 ×5', 'buff');
@@ -16215,6 +16227,7 @@ WX.PROFILE_META = {"axes":["输出","生存","控制","机动","辅助","成长"
       }
       if (u.stats) u.stats.actions += 1;
       if (u.key === 'gojo') this.gojoAfterAction(u);
+      this.gilVaultTick(u);
       if (u.key === 'merlin' && !u.dead && !u.removed) this.grantRoundInvincible(u, 1, '千里眼');
       if (u.key === 'rakshasa' && !u.inDungeon && (u.source || 0) < 6) {
         u.source = Math.min(6, (u.source || 0) + 1);
@@ -22785,7 +22798,8 @@ this.log(`${tgt.name} 在倒地状态下被击杀`, 'death');
       if (this.isBlind(u) && this.isRangedPierceSkill(s)) return '致盲中无法使用远程/突刺技能';
       if ((u.skillSealUntil || 0) > this.round && !s.basicAttack) return `技能被封（还需 ${u.skillSealUntil - this.round} 回合）`;
       const readyAt = u.cds[s.id];
-      if (!(s.chargeBypassCd && u.key === 'logres') && readyAt != null && this.round < readyAt) return `冷却中（还需 ${readyAt - this.round} 回合）`;
+      const vaultFree = u.key === 'gilCaster' && u.gilVaultActive;
+      if (!vaultFree && !(s.chargeBypassCd && u.key === 'logres') && readyAt != null && this.round < readyAt) return `冷却中（还需 ${readyAt - this.round} 回合）`;
       if (s.once && u.usedOnce[s.id]) return '本局限一次，已使用';
       if (s.available && !s.available(this, u)) return '当前无法使用';
       if (s.tiers) {
@@ -25515,6 +25529,7 @@ function lowestHp(list) {
       if (!t && !downed) return { type: 'pass' };
       const teamMode = g.units.some(x => x !== u && x.team === u.team && !x.dead && !x.removed);
       if (!teamMode && t && g.dist(u, t) <= 1 && (u.gilCasterSwordStage || 0) === 0 && (u.gilCasterBowStage || 0) === 0) return { type: 'attack', targetId: t.id };
+      if (u.gilVaultActive && t) return { type: 'skill', id: 'gilCasterSword' };
       if (ready(g, u, 'gilCasterVault')) return { type: 'skill', id: 'gilCasterVault' };
       if (t && (u.gilCasterBowStage || 0) > 0) return { type: 'skill', id: 'gilCasterBow' };
       if (t && (u.extraAction || 0) > 0 && (u.gilCasterBowStage || 0) === 0) return { type: 'skill', id: 'gilCasterBow' };
